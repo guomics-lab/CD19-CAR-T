@@ -1,0 +1,172 @@
+---
+output:
+
+  html_document:
+    df_print: paged
+    ioslides_presentation:
+      logo: om.png
+  pdf_document: default
+  word_document: default
+  
+---
+
+```{r}
+rm(list = ls())
+
+library(readr)
+library(plyr)
+library(readxl)
+library(stringr)
+library(magrittr)
+
+dd <- read_xlsx("../20210204/O20210121wangyouming_CART_tmt16plex_60min_40v_60v_b456_.xlsx" ,sheet = 2)
+dd <- dd[dd$`Protein FDR Confidence: Combined`=="High",]
+dd1 <- dd[,grepl("Ratio:",names(dd))] %>% as.data.frame()
+row.names(dd1) <- paste0(dd$Accession,"_",ge.split(dd$`Gene Symbol`,";",1))
+nm1 <- ge.split(names(dd1),"\\)",1)
+nm2 <- ge.split(nm1,"\\(",2)
+nm3 <- gsub("F1","F4",nm2)
+nm3 <- gsub("F2","F5",nm3)
+nm3 <- gsub("F3","F6",nm3)
+names(dd1) <- gsub(", ","_",nm3)
+
+df1 <- dd1
+
+# ge.na.ratio(df1)
+NA_threshold_table(df1)
+df2 <- df1[apply(df1,1, function(x){sum(!is.na(x))})>0,]
+# ge.na.ratio(df2)
+
+
+# ge.plot.pca(df2,ge.split(names(df2),"_",1),"zscore_before")
+# ge.plot.tsne(df2,ge.split(names(df2),"_",1),"zscore_before")
+
+tmp <- apply(df2, 1, scale)
+tmp2 <- data.frame(t(tmp))
+names(tmp2) <- names(df2)
+
+
+# ge.plot.pca(tmp2,ge.split(names(df2),"_",1),"zscore_after")
+# ge.plot.tsne(tmp2,ge.split(names(df2),"_",1),"zscore_after")
+
+
+####################################
+# df2 <- df.remove2
+# 
+# ge.plot.density(df2)
+###################################
+
+max(df2,na.rm = T)
+min(df2,na.rm = T)
+
+
+
+info <- read_xlsx("../20210726/20210722_data_analysis_youming(1).xlsx",sheet = 3)
+info$sample <- paste0(info$F,"_",info$TMT)
+names(df2) <- info$batch[match(names(df2),info$sample)]
+
+
+info2 <- read_xlsx("../20210726/20210722_data_analysis_youming(1).xlsx",sheet = 1)
+info3 <- info2[1:83,1:4]
+df2.name <- gsub("b","",names(df2))
+```
+
+
+<!-- pool cv -->
+<!-- ```{r} -->
+
+<!-- pool <- dd[,grepl(", 126$",names(dd))] %>% as.data.frame() -->
+<!-- pool2 <- pool[apply(pool, 1, function(x){sum(!is.na(x))>0}),] -->
+
+<!-- names(pool2) <- c("F1","F2","F3") -->
+<!-- # ge.plot.pool.correlation(pool2,"pool_cor") -->
+
+<!-- cv <- apply(pool2, 1 , function(x){sd(x,na.rm = T)/mean(x,na.rm=T)}) -->
+<!-- list.r <- list(CV=cv) -->
+<!-- ge.plot.vioplot(list.r,title="pool cv",xlab="CV",ylab="value",color=NULL,width = 7,height = 7) -->
+
+<!-- ``` -->
+
+
+```{r}
+
+library(Mfuzz)
+tm <- info3$time[match(df2.name,info3$number)]
+group.S.D_1 <- which( tm=="D-1")
+group.S.D1 <- which( tm=="D1")
+group.S.D4 <- which(tm=="D4")
+group.S.D7 <- which( tm=="D7")
+group.S.D14 <- which( tm=="D14")
+group.S.D28 <- which( tm=="D28")
+
+mean.group.S.D_1 <- apply(df2[group.S.D_1], 1, mean,na.rm=T)
+mean.group.S.D1 <- apply(df2[group.S.D1], 1, mean,na.rm=T)
+mean.group.S.D4 <- apply(df2[group.S.D4], 1, mean,na.rm=T)
+mean.group.S.D7 <- apply(df2[group.S.D7], 1, mean,na.rm=T)
+mean.group.S.D14 <- apply(df2[group.S.D14], 1, mean,na.rm=T)
+mean.group.S.D28 <- apply(df2[group.S.D28], 1, mean,na.rm=T)
+
+mean.A <- cbind(mean.group.S.D_1,mean.group.S.D1,mean.group.S.D4,mean.group.S.D7,mean.group.S.D14,mean.group.S.D28)
+a <- ge.mfuzz.cselection(mean.A,range=seq(2,20,2))
+ge.mfuzz.getresult(a[[1]],10,a[[2]],c("D_1","D1","D4","D7","D14","D28"),"1_mfuzz")
+
+
+
+
+ge.mfuzz.cselection <- function(data,range=seq(5,50,5),repeats = 5){
+  library(Mfuzz)
+  set.seed(10)
+  df3a<-as.matrix(data)
+  df3Ex<- ExpressionSet(assayData = df3a)
+  if(interactive()){
+    df3F <- filter.NA(df3Ex)
+    df3F <- fill.NA(df3F)
+    df3F <- standardise(df3F)
+  }
+  
+  df3F <- filter.NA(df3F)
+  m<-mestimate(df3F)
+  cselection(df3F,m=m,crange = range,repeats = repeats,visu = T)
+  a <- list(data=df3F,m)
+  return(a)
+
+}
+
+ge.mfuzz.getresult <- function(expressionSet, pic,m,time.label,filename,anova=F,alldata=NULL,type=NULL){
+  set.seed(10)
+  cl <- mfuzz(expressionSet,c=pic,m=m)
+  dir.create(path=filename,recursive = TRUE)
+  pdf(paste0(filename,".pdf"),width = 10, height  = 8)
+  mfuzz.plot2(expressionSet, cl=cl,time.labels=time.label,mfrow=c(4,4),centre=TRUE,x11=F,centre.lwd=0.2)#min.mem=0.99
+  dev.off()
+  
+  for(i in 1:pic){
+    potname<-names(cl$cluster[unname(cl$cluster)==i])
+    write.csv(cl[[4]][potname,i],paste0(filename,"/mfuzz_",i,".csv"))
+  }
+  if(anova){
+    for(ii in 1:pic){
+      potname<-names(cl$cluster[unname(cl$cluster)==ii])
+      tmp <- data.frame(label=as.factor(type),t(alldata[potname,]))
+      anova <- c()
+      for (n in 1:length(potname)) {
+        aov<- tryCatch( summary(aov(tmp[,n+1] ~ label,data=tmp))[[1]]$`Pr(>F)`[1] %>% format(digits = 3, scientific = FALSE),error = function(x) NA)
+        anova <- c(anova,aov)
+      }
+      anova.adjust <-p.adjust(anova, method="BH")
+      newdf <- data.frame(prot=names(tmp)[-1],anova,anova.adjust)
+      newdf2 <- newdf[newdf$anova.adjust<0.05,]
+      write.csv(newdf,paste0(filename,"/mfuzz_anova_",ii,".csv"),row.names = F)
+    }
+  }
+}
+
+##################
+```
+
+
+
+
+
+
+
